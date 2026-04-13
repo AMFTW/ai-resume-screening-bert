@@ -1,46 +1,41 @@
 import streamlit as st
 import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch.nn.functional as F
+import numpy as np
+import joblib
+from transformers import BertTokenizer, BertForSequenceClassification
 
-# page config
+# Page config
 st.set_page_config(page_title="AI Resume Screening", layout="centered")
 
 st.title("AI Resume Screening System")
 st.write("Paste a resume below to predict job category")
 
-# load model from HuggingFace (no local files)
+# Load model + tokenizer
 @st.cache_resource
 def load_model():
-    model_name = "distilbert-base-uncased"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name)
-    return tokenizer, model
+    model = BertForSequenceClassification.from_pretrained("model/")
+    tokenizer = BertTokenizer.from_pretrained("model/")
+    return model, tokenizer
 
-tokenizer, model = load_model()
+model, tokenizer = load_model()
 
-# dummy labels (replace later if you retrain model)
-labels = [
-    "ADVOCATE",
-    "ENGINEERING",
-    "DATA SCIENCE",
-    "BUSINESS DEVELOPMENT",
-    "HR",
-    "SALES",
-    "FINANCE",
-    "TEACHING",
-    "HEALTHCARE",
-    "DESIGN"
-]
+# Load label encoder
+@st.cache_resource
+def load_labels():
+    return joblib.load("model/label_encoder.pkl")
 
-# input
-resume_text = st.text_area("Resume Text")
+label_encoder = load_labels()
+labels = label_encoder.classes_
+
+# Input
+resume_text = st.text_area("Resume Text", height=200)
 
 if st.button("Predict"):
+
     if resume_text.strip() == "":
-        st.warning("Please enter resume text")
+        st.warning("Please paste a resume")
     else:
-        # tokenize
+        # Tokenize input
         inputs = tokenizer(
             resume_text,
             return_tensors="pt",
@@ -49,23 +44,27 @@ if st.button("Predict"):
             max_length=512
         )
 
-        # model inference
+        # Model prediction
         with torch.no_grad():
             outputs = model(**inputs)
+            logits = outputs.logits
+            probs = torch.nn.functional.softmax(logits, dim=1)
 
-        probs = F.softmax(outputs.logits, dim=1)
-        pred_index = torch.argmax(probs).item()
-        confidence = probs[0][pred_index].item()
+        probs = probs[0].cpu().numpy()
 
-        # result
-        st.success(f"Predicted Category: {labels[pred_index]}")
+        # Get top prediction
+        pred_index = np.argmax(probs)
+        pred_label = labels[pred_index]
+        confidence = probs[pred_index]
+
+        # Display main prediction
+        st.success(f"Predicted Category: {pred_label}")
         st.write(f"Confidence: {confidence:.2f}")
 
-        # top 3 predictions
+        # Top 3 predictions (FIXED)
         st.subheader("Top Predictions")
-        top3 = torch.topk(probs, 3)
 
-        for i in range(3):
-            idx = top3.indices[0][i].item()
-            score = top3.values[0][i].item()
-            st.write(f"{labels[idx]}: {score:.2f}")
+        top_indices = probs.argsort()[-3:][::-1]
+
+        for idx in top_indices:
+            st.write(f"{labels[idx]}: {probs[idx]:.2f}")
