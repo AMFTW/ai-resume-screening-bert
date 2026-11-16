@@ -6,7 +6,7 @@ An end-to-end Natural Language Processing (NLP) project that classifies resumes 
 
 ## Live Demo
 
-(Add your deployed Streamlit link here)
+Not deployed yet - run it locally with the steps below.
 
 ---
 
